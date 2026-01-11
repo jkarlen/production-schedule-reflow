@@ -170,4 +170,8 @@ Run tests with:
 
 ```bash
 npm run test
+```
+
+## Design Notes
+- See [PROMPTS.md](./PROMPTS.md) for AI-assisted design rationale
 

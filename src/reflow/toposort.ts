@@ -1,4 +1,4 @@
-import { WorkOrderDoc } from './types';
+import { WorkOrderDoc } from './types.js';
 
 /**
  * Performs a topological sort on WorkOrder documents using Kahn's Algorithm.

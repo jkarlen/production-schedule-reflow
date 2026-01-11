@@ -1,14 +1,15 @@
 import { DateTime } from 'luxon';
-import {
+import type {
     AnyDoc,
     WorkOrderDoc,
     WorkCenterDoc,
     ReflowResult,
     ScheduleChange,
-    ChangeReason
-} from './types';
-import { sortWorkOrders } from './toposort';
-import { calculateEndDate } from '../utils/date-utils';
+    ChangeReason,
+} from "./types.js";
+
+import { sortWorkOrders } from "./toposort.js";
+import { calculateEndDate } from "../utils/date-utils.js";
 
 export class ReflowService {
     private formatUtc(dt: DateTime): string {

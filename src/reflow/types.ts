@@ -1,65 +1,79 @@
 export type DocType = "workOrder" | "workCenter" | "manufacturingOrder";
 
 /**
- * CORE DOCUMENT SHAPES
+ * Core document envelope
  */
-
-export interface WorkOrderDoc {
+export interface BaseDoc<TDocType extends DocType, TData> {
   docId: string;
-  docType: "workOrder";
-  data: {
-    workOrderNumber: string;
-    manufacturingOrderId: string;
-    workCenterId: string;
-    startDate: string; // ISO-8601 UTC
-    endDate: string;   // ISO-8601 UTC
-    durationMinutes: number;
-    isMaintenance: boolean;
-    dependsOnWorkOrderIds: string[];
-  };
+  docType: TDocType;
+  data: TData;
 }
 
-export interface WorkCenterDoc {
-  docId: string;
-  docType: "workCenter";
-  data: {
-    name: string;
-    shifts: {
-      dayOfWeek: number; // 1 (Mon) - 7 (Sun)
-      startHour: number;
-      endHour: number;
-    }[];
-    maintenanceWindows: {
+/**
+ * SPEC-COMPLIANT SHIFT MODEL
+ * Spec: dayOfWeek 0-6, Sunday = 0
+ */
+export interface Shift {
+  dayOfWeek: number; // 0-6, Sunday=0
+  startHour: number; // 0-23
+  endHour: number;   // 0-23 (assumes same-day shift, endHour > startHour)
+}
+
+export interface MaintenanceWindow {
+  startDate: string; // ISO-8601 UTC
+  endDate: string;   // ISO-8601 UTC
+  reason?: string;
+}
+
+/**
+ * Document shapes
+ */
+export type WorkOrderDoc = BaseDoc<
+    "workOrder",
+    {
+      workOrderNumber: string;
+      manufacturingOrderId: string;
+      workCenterId: string;
+
       startDate: string; // ISO-8601 UTC
       endDate: string;   // ISO-8601 UTC
-      reason?: string;
-    }[];
-  };
-}
+      durationMinutes: number;
 
-export interface ManufacturingOrderDoc {
-  docId: string;
-  docType: "manufacturingOrder";
-  data: {
-    manufacturingOrderNumber: string;
-    itemId: string;
-    quantity: number;
-    dueDate: string; // ISO-8601 UTC
-  };
-}
+      isMaintenance: boolean; // fixed/pinned if true
+      dependsOnWorkOrderIds: string[]; // all must complete before start
+    }
+>;
+
+export type WorkCenterDoc = BaseDoc<
+    "workCenter",
+    {
+      name: string;
+      shifts: Shift[];
+      maintenanceWindows: MaintenanceWindow[];
+    }
+>;
+
+export type ManufacturingOrderDoc = BaseDoc<
+    "manufacturingOrder",
+    {
+      manufacturingOrderNumber: string;
+      itemId: string;
+      quantity: number;
+      dueDate: string; // ISO-8601 UTC
+    }
+>;
 
 export type AnyDoc = WorkOrderDoc | WorkCenterDoc | ManufacturingOrderDoc;
 
 /**
- * REFLOW OPERATION TYPES
+ * Reflow output types
  */
-
 export type ChangeReason =
     | "DEPENDENCY_DELAY"
     | "CAPACITY_CONFLICT"
     | "MAINTENANCE_OVERLAP"
     | "SHIFT_BOUNDARY_ADJUSTMENT"
-    | "MANUFACTURING_ORDER_PRIORITY";
+    | "MANUFACTURING_ORDER_PRIORITY"; // reserved / @upgrade
 
 export interface ScheduleChange {
   workOrderId: string;
@@ -69,13 +83,21 @@ export interface ScheduleChange {
   newStartDate: string;
   newEndDate: string;
   reasons: ChangeReason[];
-  affectedByDocId?: string; // e.g., the ID of the WorkCenter or WorkOrder that caused the shift
+  affectedByDocId?: string;
 }
 
 export interface ReflowInput {
-  allDocuments: AnyDoc[];
-  targetWorkOrderId?: string; // Optional: trigger reflow starting from a specific point
-  anchorDate?: string;        // Optional: do not move jobs before this date
+  /**
+   * Optional: only reflow a particular work order and all downstream dependents.
+   * If omitted, reflow the entire set.
+   */
+  targetWorkOrderId?: string;
+
+  /**
+   * Optional: jobs whose original start is strictly before this date are treated as pinned blocks
+   * (i.e., we will not move them earlier/later; we schedule around them).
+   */
+  anchorDate?: string; // ISO-8601 UTC
 }
 
 export interface ReflowResult {
@@ -85,6 +107,6 @@ export interface ReflowResult {
   metadata: {
     totalOrdersProcessed: number;
     totalDelaysIncurredMinutes: number;
-    timestamp: string;
+    timestamp: string; // ISO-8601 UTC
   };
 }

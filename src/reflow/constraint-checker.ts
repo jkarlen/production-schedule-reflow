@@ -1,5 +1,5 @@
 import { DateTime, Interval } from 'luxon';
-import { WorkOrderDoc, WorkCenterDoc, AnyDoc } from './types';
+import { WorkOrderDoc, WorkCenterDoc, AnyDoc } from './types.js';
 
 export class ConstraintChecker {
     /**

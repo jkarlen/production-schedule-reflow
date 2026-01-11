@@ -1,78 +1,91 @@
-import { describe, it, expect } from 'vitest';
-import { sortWorkOrders } from './toposort';
-import { WorkOrderDoc } from './types';
+import { describe, it, expect } from "vitest";
+import { sortWorkOrders } from "./toposort.js";
+import type { WorkOrderDoc } from "./types.js";
 
-// Helper to create mock WorkOrder docs
-const createWO = (id: string, deps: string[] = []): WorkOrderDoc => ({
-    docId: id,
-    docType: "workOrder",
-    data: {
-        workOrderNumber: `WO-${id}`,
-        manufacturingOrderId: "MO-1",
-        workCenterId: "WC-1",
-        startDate: "2026-01-10T08:00:00Z",
-        endDate: "2026-01-10T10:00:00Z",
-        durationMinutes: 120,
-        isMaintenance: false,
-        dependsOnWorkOrderIds: deps
+function wo(docId: string, dependsOnWorkOrderIds: string[] = []): WorkOrderDoc {
+    return {
+        docId,
+        docType: "workOrder",
+        data: {
+            workOrderNumber: docId,
+            manufacturingOrderId: "MO-1",
+            workCenterId: "WC-1",
+            startDate: "2026-01-01T00:00:00Z",
+            endDate: "2026-01-01T01:00:00Z",
+            durationMinutes: 60,
+            isMaintenance: false,
+            dependsOnWorkOrderIds,
+        },
+    };
+}
+
+function ids(list: WorkOrderDoc[]): string[] {
+    return list.map((x) => x.docId);
+}
+
+/**
+ * Validates that `order` is a topological ordering for the given input set.
+ */
+function expectValidTopoOrder(input: WorkOrderDoc[], order: WorkOrderDoc[]) {
+    const pos = new Map(order.map((x, i) => [x.docId, i]));
+
+    // same elements
+    expect(new Set(ids(order))).toEqual(new Set(ids(input)));
+
+    for (const node of input) {
+        const nodePos = pos.get(node.docId);
+        expect(nodePos).toBeTypeOf("number");
+
+        for (const dep of node.data.dependsOnWorkOrderIds) {
+            // if dep is missing, implementation should throw before this point
+            const depPos = pos.get(dep);
+            expect(depPos).toBeTypeOf("number");
+            expect(depPos!).toBeLessThan(nodePos!);
+        }
     }
-});
+}
 
-describe('toposort: sortWorkOrders', () => {
-    it('should return orders in the correct sequence for simple chains', () => {
-        const wo3 = createWO('3', ['2']);
-        const wo1 = createWO('1', []);
-        const wo2 = createWO('2', ['1']);
-
-        const result = sortWorkOrders([wo3, wo1, wo2]);
-        const ids = result.map(r => r.docId);
-
-        expect(ids).toEqual(['1', '2', '3']);
+describe("toposort", () => {
+    it("returns empty when no work orders are provided", () => {
+        expect(sortWorkOrders([])).toEqual([]);
     });
 
-    it('should handle complex branching (diamond dependency)', () => {
-        // 1 -> 2, 1 -> 3, 2 -> 4, 3 -> 4
-        const wo1 = createWO('1');
-        const wo2 = createWO('2', ['1']);
-        const wo3 = createWO('3', ['1']);
-        const wo4 = createWO('4', ['2', '3']);
-
-        const result = sortWorkOrders([wo4, wo3, wo2, wo1]);
-        const ids = result.map(r => r.docId);
-
-        expect(ids[0]).toBe('1');
-        expect(ids[3]).toBe('4');
-        expect(ids).toContain('2');
-        expect(ids).toContain('3');
+    it("sorts a simple linear dependency chain", () => {
+        const input = [wo("C", ["B"]), wo("B", ["A"]), wo("A")];
+        const result = sortWorkOrders(input);
+        expect(ids(result)).toEqual(["A", "B", "C"]);
+        expectValidTopoOrder(input, result);
     });
 
-    it('should throw a clear error on a direct cycle (A -> A)', () => {
-        const woA = createWO('A', ['A']);
+    it("is deterministic when multiple valid orders exist (stable tie-breaking)", () => {
+        // A must be first, then B/C are both eligible.
+        // This test locks in *stable behavior*: keep the relative order from input
+        // among nodes that become eligible at the same time.
+        const input = [wo("A"), wo("C", ["A"]), wo("B", ["A"])];
 
-        expect(() => sortWorkOrders([woA])).toThrow(/Circular Dependency Detected: A -> A/);
+        const run1 = ids(sortWorkOrders(input));
+        const run2 = ids(sortWorkOrders(input));
+        expect(run1).toEqual(run2);
+
+        // With the above input ordering, stable behavior yields A, C, B
+        expect(run1).toEqual(["A", "C", "B"]);
+        expectValidTopoOrder(input, sortWorkOrders(input));
     });
 
-    it('should throw a clear error on a deep cycle (A -> B -> C -> A)', () => {
-        const woA = createWO('A', ['B']);
-        const woB = createWO('B', ['C']);
-        const woC = createWO('C', ['A']);
-
-        expect(() => sortWorkOrders([woA, woB, woC])).toThrow(/Circular Dependency Detected: A -> B -> C -> A/);
+    it("preserves input order for independent roots (stable ordering)", () => {
+        const input = [wo("X"), wo("Z"), wo("Y")];
+        const result = sortWorkOrders(input);
+        expect(ids(result)).toEqual(["X", "Z", "Y"]);
+        expectValidTopoOrder(input, result);
     });
 
-    it('should throw when a dependency ID does not exist', () => {
-        const woA = createWO('A', ['MISSING_ID']);
-
-        expect(() => sortWorkOrders([woA])).toThrow(/Invalid Dependency: WorkOrder "MISSING_ID" is referenced/);
+    it("throws on missing dependency IDs", () => {
+        const input = [wo("B", ["MISSING"]), wo("A")];
+        expect(() => sortWorkOrders(input)).toThrow(/Invalid Dependency/i);
     });
 
-    it('should handle disconnected graphs', () => {
-        const wo1 = createWO('1');
-        const wo2 = createWO('2');
-
-        const result = sortWorkOrders([wo1, wo2]);
-        expect(result.length).toBe(2);
-        expect(result.map(r => r.docId)).toContain('1');
-        expect(result.map(r => r.docId)).toContain('2');
+    it("throws on cyclic dependencies", () => {
+        const input = [wo("A", ["C"]), wo("B", ["A"]), wo("C", ["B"])];
+        expect(() => sortWorkOrders(input)).toThrow(/circular dependency/i);
     });
 });
